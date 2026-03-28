@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0e0e10" />
+  <meta name="description" content="Waveline — a local-first music player" />
+  <title>Waveline</title>
+
+  <link rel="manifest" href="manifest.json" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="lockScreen">
+  <div class="lock-box">
+    <h1>Accès privé</h1>
+    <input type="password" id="passwordInput" placeholder="Mot de passe">
+    <button id="unlockBtn">Entrer</button>
+    <p id="errorMsg"></p>
+  </div>
+</div>
+
+<div id="app">
+
+  <!-- ── SIDEBAR ───────────────────────────────────────────── -->
+  <aside id="sidebar">
+
+    <div class="sidebar-header">
+      <button class="sidebar-close" aria-label="Close menu">&#x2715;</button>
+      <a class="logo" href="#">
+        <div class="logo-icon">&#9834;</div>
+        <span class="logo-text">Waveline</span>
+      </a>
+    </div>
+
+    <nav class="nav-section">
+      <div class="nav-label">Menu</div>
+      <div class="nav-item active" id="nav-library">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm4 10H8a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2zm0-4H8a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2z"/>
+        </svg>
+        Library
+      </div>
+      <div class="nav-item" id="nav-search">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+        </svg>
+        Search
+      </div>
+    </nav>
+
+    <div class="playlist-section">
+      <div class="playlist-section-header">
+        <span class="nav-label">Playlists</span>
+        <button id="btn-new-playlist" title="New playlist">+</button>
+      </div>
+      <ul id="playlist-nav"></ul>
+    </div>
+
+  </aside>
+
+  <!-- ── MAIN CONTENT ──────────────────────────────────────── -->
+  <main id="main-area">
+
+    <div class="main-header">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button id="btn-menu-toggle" aria-label="Open menu">&#9776;</button>
+        <h1 id="main-title">Your Library</h1>
+      </div>
+      <div class="header-actions">
+        <button id="import-btn">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 9h-4V3H9v6H5l7 7 7-7zm-8 2V5h2v6h1.17L12 13.17 9.83 11H11zm-6 7h14v2H5z"/>
+          </svg>
+          Import Music
+        </button>
+        <input type="file" id="file-input" multiple accept="audio/*" style="display:none" />
+      </div>
+    </div>
+
+    <!-- Search bar — shown only in Search view -->
+    <section id="search-section" style="display:none;">
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+        </svg>
+        <input type="text" id="search-input" placeholder="Search your music&#x2026;" autocomplete="off" spellcheck="false" />
+      </div>
+    </section>
+
+    <!-- Song list -->
+    <div class="song-list-wrap">
+      <div class="song-list-header">
+        <span>#</span>
+        <span></span>
+        <span>Title</span>
+        <span style="text-align:right">Duration</span>
+        <span></span>
+      </div>
+
+      <ul id="song-list"></ul>
+
+      <div id="empty-state" style="display:none;">
+        <div class="empty-icon">&#127925;</div>
+        <div class="empty-title">No music yet</div>
+        <p class="empty-sub">Import your local audio files to start listening.<br>All files are stored securely on your device.</p>
+        <button class="empty-btn" id="empty-import-btn">&#xff0b; Import Music</button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ── PLAYER BAR ─────────────────────────────────────────── -->
+  <footer id="player-bar">
+
+    <div class="player-info">
+      <div id="player-cover">
+        <div class="cover-placeholder">&#9834;</div>
+      </div>
+      <div class="player-text">
+        <div id="player-title">&#x2014;</div>
+        <div id="player-artist">&#x2014;</div>
+      </div>
+    </div>
+
+    <div class="player-controls">
+      <div class="control-btns">
+
+        <button id="btn-shuffle" class="ctrl-btn" title="Shuffle" aria-label="Shuffle">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+          </svg>
+        </button>
+
+        <button id="btn-prev" class="ctrl-btn" title="Previous" aria-label="Previous">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/>
+          </svg>
+        </button>
+
+        <button id="btn-play" aria-label="Play/Pause">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+
+        <button id="btn-next" class="ctrl-btn" title="Next" aria-label="Next">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+          </svg>
+        </button>
+
+        <button id="btn-repeat" class="ctrl-btn" title="Repeat off" aria-label="Repeat">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>
+          </svg>
+        </button>
+
+      </div>
+
+      <div class="progress-wrap">
+        <span id="time-elapsed" class="time-label">0:00</span>
+        <div id="progress-bar">
+          <div id="progress-fill"></div>
+          <div id="progress-handle"></div>
+        </div>
+        <span id="time-duration" class="time-label" style="text-align:right">0:00</span>
+      </div>
+    </div>
+
+    <div class="player-right">
+      <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;color:var(--text-3);flex-shrink:0;">
+        <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+      </svg>
+      <input type="range" id="volume-slider" min="0" max="1" step="0.02" value="1" aria-label="Volume" title="Volume" />
+    </div>
+
+  </footer>
+
+</div>
+
+<!-- Context menu -->
+<div id="context-menu" role="menu"></div>
+
+<!-- Modal overlay -->
+<div id="modal-overlay"></div>
+
+<!-- Playlist modal -->
+<div id="playlist-modal" role="dialog" aria-modal="true">
+  <h2 id="playlist-modal-title">New Playlist</h2>
+  <input type="text" id="playlist-name-input" placeholder="Playlist name&#x2026;" maxlength="60" autocomplete="off" />
+  <div class="modal-actions">
+    <button class="btn-ghost"   id="btn-cancel-playlist">Cancel</button>
+    <button class="btn-primary" id="btn-save-playlist">Save</button>
+  </div>
+</div>
+
+<!--
+  CRITICAL FIX: Changed from <script type="module" src="app.js">
+  to a plain <script src="app.js">.
+
+  ES modules (import/export) are blocked by browsers on the file:// protocol
+  with a CORS error, causing the ENTIRE app to silently fail.
+  All DB logic has been inlined into app.js — no import/export anywhere.
+-->
+<script src="app.js"></script>
+
+</body>
+</html>
