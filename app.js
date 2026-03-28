@@ -1,23 +1,37 @@
 /**
  * app.js — Waveline Music Player
  *
- * SYSTÈME UNIFIÉ :
- *  - Au 1er lancement (DB vide) → charge depuis playlist.json, fetch les blobs, stocke en IndexedDB
- *  - Aux lancements suivants → charge depuis IndexedDB directement (rapide)
- *  - Import manuel toujours disponible pour ajouter de nouveaux sons
- *  - Écran mot de passe intégré proprement
- *  - Tous les boutons fonctionnent (play/pause/next/prev/shuffle/repeat/volume)
- *  - Playlists, recherche, menu contextuel, sidebar mobile
+ * ARCHITECTURE : stockage URL uniquement (pas de blob en IndexedDB)
+ * ─────────────────────────────────────────────────────────────────
+ * Pourquoi ? Stocker les blobs audio en IndexedDB depuis GitHub Pages
+ * génère des MediaError / NotSupportedError parce que le content-type
+ * renvoyé par le serveur peut être incorrect, corrompant le blob.
+ *
+ * Solution : on stocke uniquement les métadonnées + l'URL du fichier.
+ * À la lecture, on assigne directement audio.src = url (stream live).
+ * Pour les imports manuels (fichier local), on crée un objectURL temporaire.
+ *
+ * Fonctionnalités :
+ *  ✓ Chargement auto depuis playlist.json au 1er lancement
+ *  ✓ Persistence des métadonnées (titre, artiste, durée) en IndexedDB
+ *  ✓ Import manuel de fichiers locaux
+ *  ✓ Play / Pause / Next / Prev / Seek / Volume / Shuffle / Repeat
+ *  ✓ Playlists (créer, ajouter, retirer, supprimer)
+ *  ✓ Recherche temps réel
+ *  ✓ Écran mot de passe
+ *  ✓ Sidebar mobile
+ *  ✓ Menu contextuel
  */
 
 'use strict';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// INDEXEDDB
+// INDEXEDDB  — stocke uniquement les métadonnées (titre, artiste, url, durée)
+//              et le blob brut uniquement pour les imports locaux
 // ═══════════════════════════════════════════════════════════════════════════════
 
 var DB_NAME    = 'WavelineDB';
-var DB_VERSION = 1;
+var DB_VERSION = 2;          // bumped to 2 pour forcer upgrade si ancienne DB corrompue
 var dbInstance = null;
 
 function openDB() {
@@ -27,13 +41,13 @@ function openDB() {
 
     req.onupgradeneeded = function(e) {
       var udb = e.target.result;
-      if (!udb.objectStoreNames.contains('songs')) {
-        var s = udb.createObjectStore('songs', { keyPath: 'id', autoIncrement: true });
-        s.createIndex('title', 'title', { unique: false });
-      }
-      if (!udb.objectStoreNames.contains('playlists')) {
-        udb.createObjectStore('playlists', { keyPath: 'id', autoIncrement: true });
-      }
+      // Supprime l'ancien store s'il existe (migration v1 → v2)
+      if (udb.objectStoreNames.contains('songs'))    udb.deleteObjectStore('songs');
+      if (udb.objectStoreNames.contains('playlists')) udb.deleteObjectStore('playlists');
+      // Recrée les stores proprement
+      var s = udb.createObjectStore('songs', { keyPath: 'id', autoIncrement: true });
+      s.createIndex('title', 'title', { unique: false });
+      udb.createObjectStore('playlists', { keyPath: 'id', autoIncrement: true });
     };
 
     req.onsuccess = function(e) {
@@ -42,7 +56,7 @@ function openDB() {
       resolve(dbInstance);
     };
     req.onerror   = function(e) { reject(e.target.error); };
-    req.onblocked = function()  { reject(new Error('IndexedDB blocked')); };
+    req.onblocked = function()  { reject(new Error('IndexedDB bloquée')); };
   });
 }
 
@@ -64,13 +78,10 @@ function dbTx(storeName, mode, cb) {
   });
 }
 
-function dbAddSong(song) {
-  var r = Object.assign({}, song); delete r.id;
-  return dbTx('songs', 'readwrite', function(s) { return s.add(r); });
-}
-function dbPutSong(song) {
-  return dbTx('songs', 'readwrite', function(s) { return s.put(song); });
-}
+function dbAddSong(song)      { var r = Object.assign({}, song); delete r.id; return dbTx('songs', 'readwrite', function(s) { return s.add(r); }); }
+function dbPutSong(song)      { return dbTx('songs', 'readwrite', function(s) { return s.put(song); }); }
+function dbGetSong(id)        { return dbTx('songs', 'readonly',  function(s) { return s.get(id); }); }
+function dbDeleteSong(id)     { return dbTx('songs', 'readwrite', function(s) { return s.delete(id); }); }
 function dbGetAllSongs() {
   return openDB().then(function(db) {
     return new Promise(function(resolve, reject) {
@@ -80,16 +91,10 @@ function dbGetAllSongs() {
     });
   });
 }
-function dbGetSong(id) {
-  return dbTx('songs', 'readonly', function(s) { return s.get(id); });
-}
-function dbDeleteSong(id) {
-  return dbTx('songs', 'readwrite', function(s) { return s.delete(id); });
-}
-function dbAddPlaylist(pl) {
-  var r = Object.assign({}, pl); delete r.id;
-  return dbTx('playlists', 'readwrite', function(s) { return s.add(r); });
-}
+
+function dbAddPlaylist(pl)    { var r = Object.assign({}, pl); delete r.id; return dbTx('playlists', 'readwrite', function(s) { return s.add(r); }); }
+function dbUpdatePlaylist(pl) { return dbTx('playlists', 'readwrite', function(s) { return s.put(pl); }); }
+function dbDeletePlaylist(id) { return dbTx('playlists', 'readwrite', function(s) { return s.delete(id); }); }
 function dbGetAllPlaylists() {
   return openDB().then(function(db) {
     return new Promise(function(resolve, reject) {
@@ -98,12 +103,6 @@ function dbGetAllPlaylists() {
       req.onerror   = function() { reject(req.error); };
     });
   });
-}
-function dbUpdatePlaylist(pl) {
-  return dbTx('playlists', 'readwrite', function(s) { return s.put(pl); });
-}
-function dbDeletePlaylist(id) {
-  return dbTx('playlists', 'readwrite', function(s) { return s.delete(id); });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -121,30 +120,29 @@ var state = {
   currentPlaylistId: null,
   searchQuery:       '',
   shuffle:           false,
-  repeat:            'none'
+  repeat:            'none'   // 'none' | 'all' | 'one'
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AUDIO — un seul objet, jamais recréé
+// AUDIO — un seul objet global, jamais recréé
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var audio        = new Audio();
-audio.preload    = 'auto';
-var activeBlobUrl = null;
+var audio         = new Audio();
+audio.preload     = 'auto';
+var localBlobUrl  = null;   // objectURL pour les fichiers importés localement
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MOT DE PASSE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var CORRECT_PASSWORD = '1608'; // Change ici
+var CORRECT_PASSWORD = '1608'; // ← change ici
 
 function initLockScreen() {
   var lockScreen = document.getElementById('lockScreen');
-  var passInput  = document.getElementById('passwordInput');
-  var unlockBtn  = document.getElementById('unlockBtn');
-  var errorMsg   = document.getElementById('errorMsg');
-
-  if (!lockScreen) return; // pas d'écran de verrou dans le HTML → on skip
+  if (!lockScreen) return;
+  var passInput = document.getElementById('passwordInput');
+  var unlockBtn = document.getElementById('unlockBtn');
+  var errorMsg  = document.getElementById('errorMsg');
 
   function tryUnlock() {
     if (passInput.value === CORRECT_PASSWORD) {
@@ -155,11 +153,8 @@ function initLockScreen() {
       passInput.focus();
     }
   }
-
   unlockBtn.addEventListener('click', tryUnlock);
-  passInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') tryUnlock();
-  });
+  passInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') tryUnlock(); });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -216,19 +211,16 @@ async function init() {
   resolveDOM();
   initLockScreen();
 
-  // Charger depuis IndexedDB
   try {
     await openDB();
     state.songs     = await dbGetAllSongs();
     state.playlists = await dbGetAllPlaylists();
   } catch(err) {
     console.error('DB init error:', err);
-    showToast('⚠ Stockage indisponible pour cette session');
+    showToast('⚠ Stockage indisponible');
   }
 
-  // ── Si la DB est vide → importer depuis playlist.json ──────────────────────
-  // Les blobs sont fetchés depuis GitHub Pages et stockés en IndexedDB.
-  // Au prochain rechargement, la DB sera déjà remplie → pas de re-fetch.
+  // Si DB vide → charger les métadonnées depuis playlist.json
   if (state.songs.length === 0) {
     await loadFromJsonPlaylist();
   }
@@ -244,72 +236,60 @@ async function init() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CHARGEMENT DEPUIS playlist.json (seed au 1er lancement)
+// CHARGEMENT DEPUIS playlist.json
+// Stocke uniquement les métadonnées (titre, artiste, url, durée) en IndexedDB.
+// PAS de blob — la lecture streame directement depuis l'URL.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function loadFromJsonPlaylist() {
   try {
-    var res  = await fetch('playlist.json');
+    var res = await fetch('playlist.json');
     if (!res.ok) throw new Error('playlist.json introuvable (' + res.status + ')');
     var data = await res.json();
 
     if (!data.library || data.library.length === 0) return;
 
     showToast('Chargement de la bibliothèque…');
-
     var loaded = 0;
+
     for (var i = 0; i < data.library.length; i++) {
       var song = data.library[i];
+      if (!song.url || !song.title) continue;
+
       try {
-        // Fetch le fichier audio → blob → stocké en IndexedDB
-        var audioRes = await fetch(song.url);
-        if (!audioRes.ok) {
-          console.warn('Audio introuvable:', song.url, audioRes.status);
-          continue;
-        }
-        var blob  = await audioRes.blob();
+        // Stocke uniquement les métadonnées — PAS le blob
         var newId = await dbAddSong({
-          title:    song.title    || 'Sans titre',
+          title:    song.title,
           artist:   song.artist   || '',
-          blob:     blob,
+          url:      song.url,      // ← chemin relatif ex: "audio/los-hijos.mp3"
+          blob:     null,          // null pour les sons du JSON
           duration: song.duration || null,
           coverUrl: null,
+          source:   'json',        // marque comme issu du JSON
           addedAt:  Date.now()
         });
+
         state.songs.push({
           id:       newId,
-          title:    song.title    || 'Sans titre',
+          title:    song.title,
           artist:   song.artist   || '',
+          url:      song.url,
           duration: song.duration || null,
           coverUrl: null,
+          source:   'json',
           addedAt:  Date.now()
         });
         loaded++;
       } catch(e) {
-        console.warn('Impossible de charger:', song.title, e.message);
-      }
-    }
-
-    // Créer les playlists définies dans le JSON (Favorites, Workout, Chill…)
-    if (data.playlists) {
-      for (var plName in data.playlists) {
-        var exists = state.playlists.find(function(p) { return p.name === plName; });
-        if (!exists) {
-          var newPlId = await dbAddPlaylist({ name: plName, songIds: [], createdAt: Date.now() });
-          state.playlists.push({ id: newPlId, name: plName, songIds: [], createdAt: Date.now() });
-        }
+        console.warn('Erreur ajout song:', song.title, e);
       }
     }
 
     if (loaded > 0) {
       showToast('✓ ' + loaded + ' son' + (loaded > 1 ? 's' : '') + ' chargé' + (loaded > 1 ? 's' : ''));
-    } else {
-      showToast('⚠ Aucun son chargé — vérifiez les chemins audio');
     }
-
   } catch(err) {
     console.error('Erreur playlist.json:', err);
-    // Pas grave — l'utilisateur peut importer manuellement
   }
 }
 
@@ -353,7 +333,7 @@ function renderView() {
     dom.importBtn.style.display = 'none';
     var q = state.searchQuery.trim().toLowerCase();
     songs = q
-      ? state.songs.filter(function(s) { return s.title.toLowerCase().includes(q); })
+      ? state.songs.filter(function(s) { return s.title.toLowerCase().includes(q) || (s.artist && s.artist.toLowerCase().includes(q)); })
       : state.songs;
 
   } else if (state.currentView === 'playlist') {
@@ -395,11 +375,11 @@ function renderSongList(songs) {
       '<div class="song-number">'  + numHtml   + '</div>' +
       '<div class="song-cover">'   + coverHtml + '</div>' +
       '<div class="song-info">' +
-        '<div class="song-title">' + escHtml(song.title)                  + '</div>' +
-        '<div class="song-meta">'  + escHtml(song.artist || 'Artiste inconnu') + '</div>' +
+        '<div class="song-title">' + escHtml(song.title)                        + '</div>' +
+        '<div class="song-meta">'  + escHtml(song.artist || 'Artiste inconnu')  + '</div>' +
       '</div>' +
-      '<div class="song-duration">' + (song.duration ? fmtDuration(song.duration) : '\u2014') + '</div>' +
-      '<button class="song-menu-btn" aria-label="Plus d\'options">\u22ef</button>';
+      '<div class="song-duration">' + fmtDuration(song.duration) + '</div>' +
+      '<button class="song-menu-btn" aria-label="Plus">\u22ef</button>';
 
     li.addEventListener('click', function(e) {
       if (e.target.classList.contains('song-menu-btn')) return;
@@ -419,7 +399,6 @@ function renderPlayer() {
 
   dom.playerTitle.textContent  = song.title;
   dom.playerArtist.textContent = song.artist || 'Artiste inconnu';
-
   dom.playerCover.innerHTML = song.coverUrl
     ? '<img src="' + escHtml(song.coverUrl) + '" alt="cover">'
     : '<div class="cover-placeholder">' + getInitial(song.title) + '</div>';
@@ -449,6 +428,9 @@ function updatePlayingHighlight() {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // LECTURE
+// Deux modes selon la source du son :
+//   source='json'  → audio.src = url relative (stream depuis GitHub)
+//   source='local' → audio.src = objectURL créé depuis le blob en DB
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function playSongInContext(songId, contextSongs) {
@@ -461,41 +443,54 @@ async function playSong(songId) {
   var song = state.songs.find(function(s) { return s.id === songId; });
   if (!song) return;
 
+  // Arrête la lecture en cours
   audio.pause();
-  if (activeBlobUrl) { URL.revokeObjectURL(activeBlobUrl); activeBlobUrl = null; }
+
+  // Révoque l'éventuel objectURL local précédent
+  if (localBlobUrl) {
+    URL.revokeObjectURL(localBlobUrl);
+    localBlobUrl = null;
+  }
 
   state.currentSongId = songId;
   state.isPlaying     = false;
+  renderPlayer();        // affiche le titre immédiatement
+  updatePlayingHighlight();
 
-  var stored;
-  try {
-    stored = await dbGetSong(songId);
-  } catch(err) {
-    console.error('DB read error:', err);
-    showToast('⚠ Impossible de lire ce son');
-    return;
+  if (song.source === 'json' && song.url) {
+    // ── Son issu du JSON : stream direct depuis l'URL ──────────────────────
+    audio.src = song.url;
+
+  } else {
+    // ── Son importé localement : récupère le blob en DB ────────────────────
+    var stored;
+    try {
+      stored = await dbGetSong(songId);
+    } catch(err) {
+      console.error('DB read error:', err);
+      showToast('⚠ Impossible de lire ce son depuis le stockage');
+      return;
+    }
+    if (!stored || !stored.blob) {
+      showToast('⚠ Fichier introuvable dans le stockage local');
+      return;
+    }
+    localBlobUrl = URL.createObjectURL(stored.blob);
+    audio.src    = localBlobUrl;
   }
-
-  if (!stored || !stored.blob) {
-    showToast('⚠ Fichier audio introuvable en stockage');
-    return;
-  }
-
-  activeBlobUrl = URL.createObjectURL(stored.blob);
-  audio.src     = activeBlobUrl;
 
   try {
     await audio.play();
   } catch(err) {
     if (err.name === 'NotAllowedError') {
-      showToast('▶ Cliquez sur Play (politique autoplay du navigateur)');
+      showToast('▶ Cliquez Play — le navigateur bloque l\'autoplay');
+    } else if (err.name === 'NotSupportedError') {
+      showToast('⚠ Format audio non supporté ou fichier introuvable');
+      console.error('NotSupportedError sur:', song.url || '(local blob)');
     } else {
-      console.warn('audio.play() error:', err.name);
+      console.warn('audio.play() erreur:', err.name, err.message);
     }
   }
-
-  renderPlayer();
-  updatePlayingHighlight();
 }
 
 function togglePlay() {
@@ -506,7 +501,7 @@ function togglePlay() {
   if (state.isPlaying) {
     audio.pause();
   } else {
-    audio.play().catch(function(e) { console.warn('Resume error:', e.name); });
+    audio.play().catch(function(e) { console.warn('Resume:', e.name); });
   }
 }
 
@@ -514,9 +509,7 @@ function playNext() {
   if (state.queue.length === 0) return;
   if (state.shuffle) {
     var idx = state.queueIndex;
-    if (state.queue.length > 1) {
-      while (idx === state.queueIndex) idx = Math.floor(Math.random() * state.queue.length);
-    }
+    if (state.queue.length > 1) while (idx === state.queueIndex) idx = Math.floor(Math.random() * state.queue.length);
     state.queueIndex = idx;
   } else {
     state.queueIndex = (state.queueIndex + 1) % state.queue.length;
@@ -536,7 +529,7 @@ function playPrev() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ÉVÉNEMENTS AUDIO
+// EVENTS AUDIO
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function bindAudioEvents() {
@@ -545,10 +538,12 @@ function bindAudioEvents() {
     renderPlayer();
     updatePlayingHighlight();
   });
+
   audio.addEventListener('pause', function() {
     state.isPlaying = false;
     renderPlayer();
   });
+
   audio.addEventListener('ended', function() {
     state.isPlaying = false;
     if (state.repeat === 'one') {
@@ -560,6 +555,7 @@ function bindAudioEvents() {
       renderPlayer();
     }
   });
+
   audio.addEventListener('timeupdate', function() {
     if (!audio.duration || isNaN(audio.duration)) return;
     var pct = (audio.currentTime / audio.duration) * 100;
@@ -567,9 +563,11 @@ function bindAudioEvents() {
     dom.progressHandle.style.left = pct + '%';
     dom.timeElapsed.textContent   = fmtTime(audio.currentTime);
   });
+
   audio.addEventListener('loadedmetadata', function() {
     if (isNaN(audio.duration)) return;
     dom.timeDuration.textContent = fmtTime(audio.duration);
+    // Persiste la durée réelle en DB si elle n'était pas connue
     var song = state.songs.find(function(s) { return s.id === state.currentSongId; });
     if (song && !song.duration) {
       song.duration = audio.duration;
@@ -578,11 +576,14 @@ function bindAudioEvents() {
       }).catch(function() {});
     }
   });
+
   audio.addEventListener('error', function() {
-    console.error('Erreur audio:', audio.error);
+    if (!audio.error) return;
+    var codes = { 1:'ABORTED', 2:'NETWORK', 3:'DECODE', 4:'SRC_NOT_SUPPORTED' };
+    console.error('Audio MediaError:', codes[audio.error.code] || audio.error.code, audio.error.message);
     state.isPlaying = false;
     renderPlayer();
-    showToast('⚠ Impossible de lire ce fichier audio');
+    showToast('⚠ Impossible de lire ce fichier — vérifiez que le MP3 est bien uploadé');
   });
 }
 
@@ -599,7 +600,8 @@ function seekTo(clientX) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// IMPORT MANUEL (bouton Import Music)
+// IMPORT MANUEL (fichiers locaux via bouton)
+// Pour les fichiers locaux on stocke le blob en DB + source='local'
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function importFiles(files) {
@@ -619,15 +621,24 @@ async function importFiles(files) {
     return;
   }
 
-  showToast('Import de ' + toImport.length + ' fichier(s)\u2026');
-
+  showToast('Import de ' + toImport.length + ' fichier(s)…');
   var imported = 0;
+
   for (var i = 0; i < toImport.length; i++) {
     var file  = toImport[i];
     var title = file.name.replace(/\.[^/.]+$/, '').replace(/[_\-]+/g, ' ').trim();
     try {
-      var newId = await dbAddSong({ title: title, artist: '', blob: file, duration: null, coverUrl: null, addedAt: Date.now() });
-      state.songs.push({ id: newId, title: title, artist: '', duration: null, coverUrl: null, addedAt: Date.now() });
+      var newId = await dbAddSong({
+        title:    title,
+        artist:   '',
+        url:      null,
+        blob:     file,
+        duration: null,
+        coverUrl: null,
+        source:   'local',
+        addedAt:  Date.now()
+      });
+      state.songs.push({ id: newId, title: title, artist: '', url: null, duration: null, coverUrl: null, source: 'local', addedAt: Date.now() });
       imported++;
     } catch(e) {
       console.error('Erreur import:', file.name, e);
@@ -665,7 +676,6 @@ function hideModal() {
 async function savePlaylist() {
   var name = dom.playlistNameInput.value.trim();
   if (!name) { dom.playlistNameInput.focus(); return; }
-
   if (editingPlaylistId !== null) {
     var pl = state.playlists.find(function(p) { return p.id === editingPlaylistId; });
     if (pl) { pl.name = name; await dbUpdatePlaylist(pl); }
@@ -684,12 +694,8 @@ async function savePlaylist() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function openPlaylist(id) {
-  state.currentView       = 'playlist';
-  state.currentPlaylistId = id;
-  updateNavActive('playlist');
-  renderSidebar();
-  renderView();
-  closeSidebar();
+  state.currentView = 'playlist'; state.currentPlaylistId = id;
+  updateNavActive('playlist'); renderSidebar(); renderView(); closeSidebar();
 }
 
 async function confirmDeletePlaylist(id) {
@@ -698,9 +704,7 @@ async function confirmDeletePlaylist(id) {
   await dbDeletePlaylist(id);
   state.playlists = state.playlists.filter(function(p) { return p.id !== id; });
   if (state.currentPlaylistId === id) { state.currentView = 'library'; state.currentPlaylistId = null; }
-  renderSidebar();
-  renderView();
-  showToast('Playlist supprimée');
+  renderSidebar(); renderView(); showToast('Playlist supprimée');
 }
 
 async function addToPlaylist(songId, playlistId) {
@@ -727,10 +731,8 @@ async function confirmDeleteSong(songId) {
   hideContextMenu();
   var song = state.songs.find(function(s) { return s.id === songId; });
   if (!song || !confirm('Supprimer "' + song.title + '" de la bibliothèque ?')) return;
-
   await dbDeleteSong(songId);
   state.songs = state.songs.filter(function(s) { return s.id !== songId; });
-
   for (var i = 0; i < state.playlists.length; i++) {
     var pl = state.playlists[i];
     if (pl.songIds.indexOf(songId) !== -1) {
@@ -738,15 +740,12 @@ async function confirmDeleteSong(songId) {
       await dbUpdatePlaylist(pl);
     }
   }
-
   if (state.currentSongId === songId) {
     audio.pause();
-    if (activeBlobUrl) { URL.revokeObjectURL(activeBlobUrl); activeBlobUrl = null; }
-    state.currentSongId = null;
-    state.isPlaying     = false;
+    if (localBlobUrl) { URL.revokeObjectURL(localBlobUrl); localBlobUrl = null; }
+    state.currentSongId = null; state.isPlaying = false;
     dom.playerBar.classList.remove('visible');
   }
-
   renderView();
   showToast('Son supprimé');
 }
@@ -760,38 +759,31 @@ function showContextMenu(e, songId) {
 
   if (state.playlists.length > 0) {
     var hdr = document.createElement('div');
-    hdr.className = 'ctx-header';
-    hdr.textContent = 'Ajouter à la playlist';
+    hdr.className = 'ctx-header'; hdr.textContent = 'Ajouter à la playlist';
     dom.contextMenu.appendChild(hdr);
-
     state.playlists.forEach(function(pl) {
       var btn = document.createElement('button');
-      btn.className   = 'ctx-item';
-      btn.textContent = pl.name;
+      btn.className = 'ctx-item'; btn.textContent = pl.name;
       btn.addEventListener('click', function() { addToPlaylist(songId, pl.id); });
       dom.contextMenu.appendChild(btn);
     });
-
-    var sep = document.createElement('div');
-    sep.className = 'ctx-sep';
+    var sep = document.createElement('div'); sep.className = 'ctx-sep';
     dom.contextMenu.appendChild(sep);
   }
 
   if (state.currentView === 'playlist' && state.currentPlaylistId !== null) {
     var rmBtn = document.createElement('button');
-    rmBtn.className   = 'ctx-item ctx-danger';
-    rmBtn.textContent = 'Retirer de la playlist';
+    rmBtn.className = 'ctx-item ctx-danger'; rmBtn.textContent = 'Retirer de la playlist';
     rmBtn.addEventListener('click', function() { removeFromCurrentPlaylist(songId); });
     dom.contextMenu.appendChild(rmBtn);
   }
 
   var delBtn = document.createElement('button');
-  delBtn.className   = 'ctx-item ctx-danger';
-  delBtn.textContent = 'Supprimer de la bibliothèque';
+  delBtn.className = 'ctx-item ctx-danger'; delBtn.textContent = 'Supprimer de la bibliothèque';
   delBtn.addEventListener('click', function() { confirmDeleteSong(songId); });
   dom.contextMenu.appendChild(delBtn);
 
-  var mW = 210, mH = dom.contextMenu.childElementCount * 38 + 16;
+  var mW = 220, mH = dom.contextMenu.childElementCount * 38 + 16;
   dom.contextMenu.style.left = Math.max(8, Math.min(e.clientX, window.innerWidth  - mW - 8)) + 'px';
   dom.contextMenu.style.top  = Math.max(8, Math.min(e.clientY, window.innerHeight - mH - 8)) + 'px';
   dom.contextMenu.classList.add('visible');
@@ -803,18 +795,13 @@ function hideContextMenu() { dom.contextMenu.classList.remove('visible'); }
 // NAVIGATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function openLibrary() {
-  state.currentView = 'library'; state.currentPlaylistId = null;
-  updateNavActive('library'); renderView(); closeSidebar();
-}
-
+function openLibrary()    { state.currentView = 'library'; state.currentPlaylistId = null; updateNavActive('library'); renderView(); closeSidebar(); }
 function openSearchView() {
   state.currentView = 'search'; state.currentPlaylistId = null;
   updateNavActive('search'); renderView();
   setTimeout(function() { if (dom.searchInput) dom.searchInput.focus(); }, 100);
   closeSidebar();
 }
-
 function updateNavActive(view) {
   dom.navLibrary.classList.toggle('active', view === 'library');
   dom.navSearch.classList.toggle('active',  view === 'search');
@@ -822,7 +809,6 @@ function updateNavActive(view) {
     el.classList.toggle('active', view === 'playlist' && Number(el.dataset.id) === state.currentPlaylistId);
   });
 }
-
 function openSidebar()  { dom.sidebar.classList.add('open'); }
 function closeSidebar() { dom.sidebar.classList.remove('open'); }
 
@@ -875,19 +861,10 @@ function bindEvents() {
 
   dom.importBtn.addEventListener('click', function() { dom.fileInput.value = ''; dom.fileInput.click(); });
   dom.fileInput.addEventListener('change', function(e) { importFiles(e.target.files); });
+  if (dom.emptyImportBtn) dom.emptyImportBtn.addEventListener('click', function() { dom.fileInput.value = ''; dom.fileInput.click(); });
 
-  if (dom.emptyImportBtn) {
-    dom.emptyImportBtn.addEventListener('click', function() { dom.fileInput.value = ''; dom.fileInput.click(); });
-  }
-
-  document.addEventListener('dragover', function(e) {
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-  });
-  document.addEventListener('drop', function(e) {
-    e.preventDefault();
-    if (e.dataTransfer) importFiles(e.dataTransfer.files);
-  });
+  document.addEventListener('dragover', function(e) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; });
+  document.addEventListener('drop',     function(e) { e.preventDefault(); if (e.dataTransfer) importFiles(e.dataTransfer.files); });
 
   dom.btnPlay.addEventListener('click',    togglePlay);
   dom.btnPrev.addEventListener('click',    playPrev);
@@ -895,12 +872,12 @@ function bindEvents() {
   dom.btnShuffle.addEventListener('click', toggleShuffle);
   dom.btnRepeat.addEventListener('click',  toggleRepeat);
 
-  dom.progressBar.addEventListener('mousedown', function(e) { isSeeking = true; seekTo(e.clientX); });
+  dom.progressBar.addEventListener('mousedown',  function(e) { isSeeking = true; seekTo(e.clientX); });
   dom.progressBar.addEventListener('touchstart', function(e) { isSeeking = true; seekTo(e.touches[0].clientX); }, { passive: true });
   document.addEventListener('mousemove', function(e) { if (isSeeking) seekTo(e.clientX); });
   document.addEventListener('touchmove', function(e) { if (isSeeking) seekTo(e.touches[0].clientX); }, { passive: true });
-  document.addEventListener('mouseup',  function() { isSeeking = false; });
-  document.addEventListener('touchend', function() { isSeeking = false; });
+  document.addEventListener('mouseup',   function() { isSeeking = false; });
+  document.addEventListener('touchend',  function() { isSeeking = false; });
 
   if (dom.volumeSlider) {
     dom.volumeSlider.value = audio.volume;
@@ -943,10 +920,9 @@ function fmtTime(sec) {
   return m + ':' + (s < 10 ? '0' : '') + s;
 }
 
-// Accepte "3:45" (string depuis JSON) ou un nombre de secondes
 function fmtDuration(val) {
-  if (!val) return '0:00';
-  if (typeof val === 'string' && val.includes(':')) return val; // déjà formaté
+  if (!val) return '\u2014';
+  if (typeof val === 'string' && val.indexOf(':') !== -1) return val;
   return fmtTime(parseFloat(val));
 }
 
@@ -967,7 +943,7 @@ function showToast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(function() { t.classList.remove('show'); }, 2800);
+  toastTimer = setTimeout(function() { t.classList.remove('show'); }, 3000);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
