@@ -1013,54 +1013,82 @@ html, body {
   #volume-slider { display: none; }
 }
 
+/* ─── ÉCRAN MOT DE PASSE ──────────────────────────────────────────────────────── */
+
 #lockScreen {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: #121212;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: var(--bg);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 9999;
+  z-index: 99999;
 }
 
 .lock-box {
-  background: #181818;
-  padding: 30px;
-  border-radius: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  padding: 36px 32px;
+  border-radius: var(--radius);
   text-align: center;
-  color: white;
+  color: var(--text);
   width: 300px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
 }
 
-.lock-box input {
+.lock-box h1 {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 20px;
+  background: linear-gradient(90deg, var(--accent-2), #e0c8ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.lock-box input[type="password"] {
   width: 100%;
-  padding: 10px;
-  margin-top: 15px;
-  border-radius: 8px;
-  border: none;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-3);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
   outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
 }
 
-.lock-box button {
-  margin-top: 15px;
-  padding: 10px;
+.lock-box input[type="password"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.lock-box button#unlockBtn {
   width: 100%;
+  padding: 11px;
   border: none;
-  border-radius: 8px;
-  background: #1db954;
-  color: white;
-  font-weight: bold;
+  border-radius: 20px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  font-family: var(--font);
   cursor: pointer;
+  transition: background var(--transition), transform var(--transition);
+  box-shadow: 0 2px 14px var(--accent-glow);
 }
 
-.lock-box button:hover {
-  background: #1ed760;
+.lock-box button#unlockBtn:hover {
+  background: var(--accent-2);
+  transform: translateY(-1px);
 }
 
 #errorMsg {
-  color: red;
+  color: var(--red);
+  font-size: 13px;
   margin-top: 10px;
+  min-height: 18px;
 }
