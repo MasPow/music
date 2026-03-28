@@ -1102,39 +1102,37 @@ function checkPassword() {
   }
 }
 
-fetch("playlist.json")
-  .then(res => res.json())
-  .then(data => {
-    const songs = data.library;
-    const list = document.getElementById("song-list");
+// Si aucune musique → importer depuis playlist.json
+if (state.songs.length === 0) {
+  try {
+    const res = await fetch("playlist.json");
+    const data = await res.json();
 
-    if (!songs || songs.length === 0) return;
+    for (const song of data.library) {
+      const response = await fetch(song.url);
+      const blob = await response.blob();
 
-    list.innerHTML = "";
+      const newId = await dbAddSong({
+        title: song.title,
+        artist: song.artist,
+        blob: blob,
+        duration: null,
+        coverUrl: null,
+        addedAt: Date.now()
+      });
 
-    songs.forEach((song, index) => {
-      const li = document.createElement("li");
+      state.songs.push({
+        id: newId,
+        title: song.title,
+        artist: song.artist,
+        duration: null,
+        coverUrl: null,
+        addedAt: Date.now()
+      });
+    }
 
-      li.innerHTML = `
-        <span>${index + 1}</span>
-        <span>🎵</span>
-        <span>${song.title}</span>
-        <span style="text-align:right">${song.duration || "-"}</span>
-        <span></span>
-      `;
-
-      li.addEventListener("click", () => playSong(song));
-
-      list.appendChild(li);
-    });
-  });
-
-let audio = new Audio();
-
-function playSong(song) {
-  audio.src = song.url;
-  audio.play();
-
-  document.getElementById("player-title").textContent = song.title;
-  document.getElementById("player-artist").textContent = song.artist;
+    console.log("✅ Musiques importées depuis JSON");
+  } catch (err) {
+    console.error("❌ Erreur import JSON:", err);
+  }
 }
