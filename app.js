@@ -1105,19 +1105,36 @@ function checkPassword() {
 fetch("playlist.json")
   .then(res => res.json())
   .then(data => {
-    const library = data.library;
+    const songs = data.library;
+    const list = document.getElementById("song-list");
 
-    const container = document.getElementById("library");
+    if (!songs || songs.length === 0) return;
 
-    library.forEach(song => {
-      const div = document.createElement("div");
-      div.textContent = song.title;
+    list.innerHTML = "";
 
-      div.addEventListener("click", () => {
-        const audio = new Audio(song.url);
-        audio.play();
-      });
+    songs.forEach((song, index) => {
+      const li = document.createElement("li");
 
-      container.appendChild(div);
+      li.innerHTML = `
+        <span>${index + 1}</span>
+        <span>🎵</span>
+        <span>${song.title}</span>
+        <span style="text-align:right">${song.duration || "-"}</span>
+        <span></span>
+      `;
+
+      li.addEventListener("click", () => playSong(song));
+
+      list.appendChild(li);
     });
   });
+
+let audio = new Audio();
+
+function playSong(song) {
+  audio.src = song.url;
+  audio.play();
+
+  document.getElementById("player-title").textContent = song.title;
+  document.getElementById("player-artist").textContent = song.artist;
+}
