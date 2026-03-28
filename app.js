@@ -1101,3 +1101,23 @@ function checkPassword() {
     errorMsg.textContent = "Mot de passe incorrect";
   }
 }
+
+fetch("playlist.json")
+  .then(res => res.json())
+  .then(data => {
+    const library = data.library;
+
+    const container = document.getElementById("library");
+
+    library.forEach(song => {
+      const div = document.createElement("div");
+      div.textContent = song.title;
+
+      div.addEventListener("click", () => {
+        const audio = new Audio(song.url);
+        audio.play();
+      });
+
+      container.appendChild(div);
+    });
+  });
