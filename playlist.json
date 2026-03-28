@@ -1,57 +1,29 @@
-{
-  "library": [
-    {
-      "title": "Los Hijos (feat. Sikaa7 & KamassTV)",
-      "artist": "Masp",
-      "url": "audio/Los Hijos (feat. Sikaa7 & KamaasTV).mp3",
-      "duration": "03:30"
-    },
-    {
-      "title": "La Rvfleuze - Serrure #667 feat. Freeze Co",
-      "artist": "Masp",
-      "url": "audio/La Rvfleuze - Serrure #667 feat. Freeze Corleone.mp3",
-      "duration": "03:45"
-    },
-    {
-      "title": "Vendredi13juin2025",
-      "artist": "Masp",
-      "url": "audio/Vendredi13juin2025.mp3",
-      "duration": "04:00"
-    },
-    {
-      "title": "[FLASHBACK] Jeff McDonald - El Rancho",
-      "artist": "Masp",
-      "url": "audio/[FLASHBACK] Jeff McDonald - El Rancho.mp3",
-      "duration": "03:50"
-    },
-    {
-      "title": "La Rvfleuze - Serrure #5",
-      "artist": "Masp",
-      "url": "audio/La Rvfleuze - Serrure #5.mp3",
-      "duration": "03:20"
-    },
-    {
-      "title": "Ziak - Raspoutine (Prod. Jango)",
-      "artist": "Masp",
-      "url": "audio/Ziak - Raspoutine (Prod. Jango).mp3",
-      "duration": "03:55"
-    },
-    {
-      "title": "Elias B4C - Stream Par Stream",
-      "artist": "Masp",
-      "url": "audio/Elias B4C - Stream Par Stream.mp3",
-      "duration": "03:10"
-    },
-    {
-      "title": "H.L.A DROGUE - H (Clip Officiel)",
-      "artist": "Masp",
-      "url": "audio/H.L.A DROGUE - H (Clip Officiel).mp3",
-      "duration": "03:25"
-    }
-  ],
-  "playlists": {
-    "Favorites": [],
-    "Workout": [],
-    "Chill": []
-  }
-}
+fetch("playlist.json")
+  .then(res => res.json())
+  .then(data => {
+    const list = document.getElementById("song-list");
+    list.innerHTML = "";
+
+    data.library.forEach((song, index) => {
+      const li = document.createElement("li");
+
+      li.innerHTML = `
+        <span>${index + 1}</span>
+        <span>🎵</span>
+        <span>${song.title}</span>
+        <span style="text-align:right">${song.duration || "-"}</span>
+        <span></span>
+      `;
+
+      li.addEventListener("click", () => {
+        const audio = new Audio(song.url);
+        audio.play();
+
+        document.getElementById("player-title").textContent = song.title;
+        document.getElementById("player-artist").textContent = song.artist;
+      });
+
+      list.appendChild(li);
+    });
+  })
+  .catch(err => console.error("JSON ERROR:", err));
