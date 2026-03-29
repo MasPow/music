@@ -7,9 +7,9 @@
       "duration": "3:30"
     },
     {
-      "title": "Il est où Néné",
-      "artist": "La Rvfleuze",
-      "url": "audio/il-est-ou-nene.mp3",
+      "title": "Serrure #667",
+      "artist": "La Rvfleuze ft Freeze Corleone",
+      "url": "audio/serrure-667.mp3",
       "duration": "3:45"
     },
     {
@@ -21,7 +21,7 @@
     {
       "title": "El Rancho",
       "artist": "Jeff McDonald",
-      "url": "audio/el-rancho.mp3",
+      "url": "audio/flashback-el-rancho.mp3",
       "duration": "3:50"
     },
     {
@@ -45,13 +45,8 @@
     {
       "title": "H",
       "artist": "H.L.A Drogue",
-      "url": "audio/hla-h.mp3",
+      "url": "audio/hla-drogue-h.mp3",
       "duration": "3:25"
     }
-  ],
-  "playlists": {
-    "Favoris": [],
-    "Workout": [],
-    "Chill": []
-  }
+  ]
 }
