@@ -90,43 +90,86 @@ function dbGetAllPlaylists() {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DÉTECTION DU VRAI FORMAT AUDIO (magic bytes)
-// Nécessaire car les fichiers YouTube renommés en .mp3 ont souvent un autre
-// format réel (WebM/Opus, M4A/AAC, OGG…) que le navigateur refuse de lire
-// si le content-type est wrong.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function detectMimeType(buffer) {
   var bytes = new Uint8Array(buffer.slice(0, 16));
   var hex   = Array.from(bytes).map(function(b) { return b.toString(16).padStart(2,'0'); }).join('');
 
-  // WebM / MKV  →  1a45dfa3
-  if (hex.startsWith('1a45dfa3')) return 'audio/webm';
-
-  // OGG  →  4f676753
-  if (hex.startsWith('4f676753')) return 'audio/ogg';
-
-  // MP3 ID3  →  494433
-  if (hex.startsWith('494433')) return 'audio/mpeg';
-
-  // MP3 sans ID3 (sync word 0xFF 0xE*)
-  if (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0) return 'audio/mpeg';
-
-  // FLAC  →  664c6143
-  if (hex.startsWith('664c6143')) return 'audio/flac';
-
-  // M4A / MP4 / AAC  →  ftyp à offset 4
-  var ftyp = hex.slice(8, 16);
-  if (ftyp === '66747970') return 'audio/mp4';
-
-  // WAV  →  52494646
-  if (hex.startsWith('52494646')) return 'audio/wav';
-
-  // AAC raw  →  fff1 ou fff9
+  if (hex.startsWith('1a45dfa3'))  return 'audio/webm';         // WebM/MKV
+  if (hex.startsWith('4f676753'))  return 'audio/ogg';           // OGG
+  if (hex.startsWith('494433'))    return 'audio/mpeg';          // MP3 avec ID3
+  if (hex.startsWith('664c6143'))  return 'audio/flac';          // FLAC
+  if (hex.startsWith('52494646'))  return 'audio/wav';           // WAV
+  if (hex.slice(8,16) === '66747970') return 'audio/mp4';        // M4A/MP4 (ftyp)
+  if (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0) return 'audio/mpeg'; // MP3 sync
   if ((bytes[0] === 0xFF && bytes[1] === 0xF1) ||
       (bytes[0] === 0xFF && bytes[1] === 0xF9)) return 'audio/aac';
+  return null; // inconnu — on laissera le navigateur décider
+}
 
-  // Par défaut on tente mpeg
-  return 'audio/mpeg';
+// Tous les MIME types audio que les navigateurs modernes supportent
+var ALL_AUDIO_MIMES = [
+  'audio/mpeg',      // MP3
+  'audio/webm',      // WebM/Opus (format YouTube typique)
+  'audio/ogg',       // OGG/Vorbis
+  'audio/mp4',       // M4A/AAC
+  'audio/aac',       // AAC raw
+  'audio/flac',      // FLAC
+  'audio/wav',       // WAV
+  'audio/x-m4a'     // M4A variante
+];
+
+/**
+ * Essaie de lire un ArrayBuffer avec différents MIME types jusqu'à ce que
+ * l'élément audio accepte de le décoder.
+ * Retourne une promesse qui résout avec l'objectURL fonctionnel,
+ * ou rejette si aucun format ne marche.
+ */
+function tryPlayWithMimes(arrayBuffer, mimeList, audioEl) {
+  return new Promise(function(resolve, reject) {
+    var idx = 0;
+
+    function tryNext() {
+      if (idx >= mimeList.length) {
+        reject(new Error('Aucun format supporté pour ce fichier'));
+        return;
+      }
+      var mime = mimeList[idx++];
+
+      // Vérifie d'abord que le navigateur supporte ce type
+      var canPlay = audioEl.canPlayType(mime);
+      if (!canPlay || canPlay === '') {
+        tryNext();
+        return;
+      }
+
+      var blob      = new Blob([arrayBuffer], { type: mime });
+      var objectUrl = URL.createObjectURL(blob);
+
+      function onCanPlay() {
+        cleanup();
+        resolve({ url: objectUrl, mime: mime });
+      }
+      function onError() {
+        cleanup();
+        URL.revokeObjectURL(objectUrl);
+        tryNext();
+      }
+
+      function cleanup() {
+        audioEl.removeEventListener('canplay', onCanPlay);
+        audioEl.removeEventListener('error',   onError);
+      }
+
+      audioEl.addEventListener('canplay', onCanPlay, { once: true });
+      audioEl.addEventListener('error',   onError,   { once: true });
+      audioEl.src = objectUrl;
+      audioEl.load();
+    }
+
+    tryNext();
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -439,47 +482,63 @@ async function playSong(songId) {
   renderPlayer();
   updatePlayingHighlight();
 
-  var blob;
-
   if (song.source === 'json' && song.url) {
-    // ── Son issu du JSON : fetch le fichier pour détecter son vrai format ──
+    // ── Son issu du JSON : fetch en ArrayBuffer puis essai exhaustif de MIME ─
     showToast('Chargement…');
+    var arrayBuffer;
     try {
       var fetchRes = await fetch(song.url);
       if (!fetchRes.ok) {
-        showToast('⚠ Fichier introuvable : ' + song.url + ' (' + fetchRes.status + ')');
+        showToast('⚠ Fichier introuvable (' + fetchRes.status + ') : ' + song.url);
         return;
       }
-      var arrayBuffer = await fetchRes.arrayBuffer();
-      var mime = detectMimeType(arrayBuffer);
-      blob = new Blob([arrayBuffer], { type: mime });
-      console.log(song.title, '→ format détecté:', mime);
+      arrayBuffer = await fetchRes.arrayBuffer();
     } catch(err) {
-      showToast('⚠ Impossible de charger : ' + song.title);
+      showToast('⚠ Réseau : impossible de charger ' + song.title);
       console.error('Fetch error:', song.url, err);
       return;
     }
 
+    // Magic bytes → MIME détecté en premier, puis tous les autres en fallback
+    var detectedMime = detectMimeType(arrayBuffer);
+    console.log(song.title, '→ magic bytes MIME:', detectedMime || 'inconnu');
+
+    var mimeList = detectedMime ? [detectedMime] : [];
+    ALL_AUDIO_MIMES.forEach(function(m) {
+      if (mimeList.indexOf(m) === -1) mimeList.push(m);
+    });
+
+    var result;
+    try {
+      result = await tryPlayWithMimes(arrayBuffer, mimeList, audio);
+    } catch(err) {
+      showToast('⚠ Format non supporté par ce navigateur');
+      console.error('Aucun MIME ne marche pour:', song.title, err.message);
+      return;
+    }
+
+    activeBlobUrl = result.url;
+    console.log(song.title, '→ lecture confirmée avec MIME:', result.mime);
+
   } else {
-    // ── Son importé localement : récupère le blob depuis IndexedDB ──────────
+    // ── Son importé localement : blob depuis IndexedDB ─────────────────────
     try {
       var stored = await dbGetSong(songId);
       if (!stored || !stored.blob) { showToast('⚠ Fichier introuvable en DB'); return; }
-      blob = stored.blob;
+      activeBlobUrl = URL.createObjectURL(stored.blob);
+      audio.src = activeBlobUrl;
+      audio.load();
     } catch(err) {
       showToast('⚠ Erreur DB'); console.error(err); return;
     }
   }
-
-  activeBlobUrl = URL.createObjectURL(blob);
-  audio.src     = activeBlobUrl;
 
   try {
     await audio.play();
   } catch(err) {
     if (err.name === 'NotAllowedError') {
       showToast('▶ Appuyez sur Play');
-    } else {
+    } else if (err.name !== 'AbortError') {
       showToast('⚠ Lecture impossible : ' + err.name);
       console.error('play() error:', err.name, err.message);
     }
