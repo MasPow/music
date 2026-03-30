@@ -607,6 +607,11 @@ async function playSong(songId) {
     activeBlobUrl = result.url;
     console.log('[DIAGNOSTIC]', song.title, '→ lecture avec MIME:', result.mime, '✓');
 
+    // CRITIQUE : assigner le bon src sur le player GLOBAL après le test MIME
+    // (tryPlayWithMimes utilise des éléments isolés — audio global n'a pas le bon src)
+    audio.src = activeBlobUrl;
+    audio.load();
+
   } else {
     // ── Son importé localement : blob depuis IndexedDB ─────────────────────
     try {
